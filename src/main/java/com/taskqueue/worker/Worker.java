@@ -21,12 +21,12 @@ import com.taskqueue.retry.RetryHandler;
 /**
  * Worker: drains the TaskQueue and executes tasks via registered handlers.
  *
- * <p>Phase 2 upgrades from Phase 1:
+ * <p>Phase 3 upgrades from Phase 2:
  * <ul>
- *   <li>Delegates failure to {@link RetryHandler} (no more silent drops).
- *   <li>Persists success outcome via {@link TaskRepository}.
- *   <li>Publishes {@link TaskSucceededEvent} and {@link TaskFailedEvent} via Spring events.
- *   <li>Uses SLF4J logger instead of {@code System.err.printf}.
+ *   <li>Handler invocations are wrapped by {@link CircuitBreakerHandlerDecorator}.
+ *       If a task type's downstream is failing, the breaker opens and the task
+ *       is fast-failed (returned as retryable) rather than consuming a thread
+ *       waiting for a timeout.
  * </ul>
  *
  * <p>From ch01: "Worker may be a bean, but its logic must remain unit-testable
@@ -45,6 +45,7 @@ public final class Worker implements Runnable {
     private final RetryHandler retryHandler;
     private final TaskRepository repository;
     private final ApplicationEventPublisher events;
+    private final CircuitBreakerHandlerDecorator cbDecorator;
 
     private final AtomicLong processed = new AtomicLong();
     private final AtomicLong failed    = new AtomicLong();
@@ -57,12 +58,14 @@ public final class Worker implements Runnable {
             HandlerRegistry registry,
             RetryHandler retryHandler,
             TaskRepository repository,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            CircuitBreakerHandlerDecorator cbDecorator) {
         this.queue        = Objects.requireNonNull(queue,        "queue");
         this.registry     = Objects.requireNonNull(registry,     "registry");
         this.retryHandler = Objects.requireNonNull(retryHandler, "retryHandler");
         this.repository   = Objects.requireNonNull(repository,   "repository");
         this.events       = Objects.requireNonNull(events,       "events");
+        this.cbDecorator  = Objects.requireNonNull(cbDecorator,  "cbDecorator");
     }
 
     @Override
@@ -98,8 +101,8 @@ public final class Worker implements Runnable {
         }
 
         try {
-            // The task is already in RUNNING state (set by pollDue)
-            Result<Void> result = handler.handle(task);
+            // Phase 3: invoke handler through circuit breaker decorator
+            Result<Void> result = cbDecorator.execute(handler, task);
 
             switch (result) {
                 case Result.Success<Void> __ -> {

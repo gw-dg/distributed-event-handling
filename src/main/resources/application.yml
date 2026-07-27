@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# application.yml  —  Distributed Task Queue, Phase 2
+# application.yml  —  Distributed Task Queue, Phase 3
 #
 # This file holds safe defaults suitable for local development.
 # Override individual values per environment:
@@ -43,6 +43,11 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
+  # ── Graceful shutdown (Phase 3) ────────────────────────────────────────────
+  # On SIGTERM: stop accepting new requests, wait up to 30s for in-flight tasks
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Task Queue settings  (bound to TaskQueueProperties)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -71,15 +76,52 @@ taskqueue:
     # Tasks stuck in RUNNING for longer than this are reclaimed
     visibility-timeout: 5m
 
+  # ── Phase 3: Token Bucket Rate Limiter ─────────────────────────────────────
+  # capacity: bucket size (also the maximum burst)
+  # refill-rate: tokens added per second (sustained request rate)
+  # Clients that exceed this get HTTP 429 with Retry-After: 1
+  rate-limit:
+    capacity: 100
+    refill-rate: 10
+
+  # ── Phase 3: Circuit Breaker ───────────────────────────────────────────────
+  # Breakers are per task type (one "email" breaker, one "report" breaker, etc.)
+  # sliding-window-size: evaluate failure rate over last N calls
+  # failure-rate-threshold: open if >= X% of window calls failed
+  # wait-duration-open: how long to stay OPEN before probing
+  resilience:
+    sliding-window-size: 10
+    failure-rate-threshold: 50
+    wait-duration-open: PT10S
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Server
 # ─────────────────────────────────────────────────────────────────────────────
 server:
   port: 8080
+  shutdown: graceful   # Phase 3: drain in-flight requests before stopping
   error:
     # Prevent Spring's default /error page from exposing stack traces
     include-stacktrace: never
     include-message: never
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Actuator (Phase 3)
+# ─────────────────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        # health, prometheus: public-facing; metrics: debugging
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      # Show component details in /actuator/health response (useful locally)
+      show-details: always
+  # Tag all metrics with the application name for multi-service Prometheus setups
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -89,3 +131,5 @@ logging:
     com.taskqueue: INFO
     org.springframework.jdbc: INFO
     org.flywaydb: INFO
+    # Resilience4j state transitions are worth knowing about
+    io.github.resilience4j: INFO

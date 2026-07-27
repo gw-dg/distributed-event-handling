@@ -4,6 +4,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import com.taskqueue.common.Result;
@@ -32,6 +34,8 @@ import com.taskqueue.repo.TaskRepository;
  */
 @Component
 public final class RetryHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(RetryHandler.class);
 
     private final RetryPolicy retryPolicy;
     private final TaskRepository repository;
@@ -76,7 +80,7 @@ public final class RetryHandler {
         Task retrying = task.scheduleRetryAt(retryAt, reason);
         repository.save(retrying);
 
-        System.out.printf("[RetryHandler] Task %s scheduled for retry #%d in %s at %s%n",
+        log.info("Task {} scheduled for retry #{} in {} at {}",
                 task.id(), task.attempts() + 1, delay.get(), retryAt);
     }
 
@@ -100,6 +104,6 @@ public final class RetryHandler {
         Task dead = task.recordFailure(reason, false);  // transitions to DEAD
         repository.save(dead);
         deadLetterQueue.send(dead, reason);
-        System.out.printf("[RetryHandler] Task %s sent to DLQ: %s%n", task.id(), reason);
+        log.warn("Task {} sent to DLQ: {}", task.id(), reason);
     }
 }

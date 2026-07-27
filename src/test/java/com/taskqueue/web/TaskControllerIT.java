@@ -8,10 +8,12 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.taskqueue.TaskQueueApplication;
 import com.taskqueue.model.Task;
 import com.taskqueue.service.TaskNotFoundException;
 import com.taskqueue.service.TaskQueryService;
 import com.taskqueue.service.TaskSubmissionService;
+import org.springframework.test.context.ContextConfiguration;
 
 import java.util.Optional;
 
@@ -40,6 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * </ul>
  */
 @WebMvcTest(controllers = {TaskController.class, ApiExceptionHandler.class})
+@ContextConfiguration(classes = TaskQueueApplication.class)
 class TaskControllerIT {
     // Uses TaskController from com.taskqueue.web package
 
@@ -52,10 +55,14 @@ class TaskControllerIT {
     @MockBean
     private TaskQueryService queryService;
 
+    @MockBean
+    private com.taskqueue.ratelimit.RateLimiter rateLimiter;
+
     private Task sampleTask;
 
     @BeforeEach
     void setUp() {
+        when(rateLimiter.tryAcquire()).thenReturn(true);
         sampleTask = Task.create("test-id-123", "email", "{\"to\":\"x@x.com\"}", 3, 0);
     }
 

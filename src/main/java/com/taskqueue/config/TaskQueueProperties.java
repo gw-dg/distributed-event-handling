@@ -15,35 +15,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *   <li>Type conversion from YAML strings to Duration, int, boolean is automatic.</li>
  * </ul>
  *
+ * <p>Phase 3 additions: {@link RateLimit} and {@link Resilience} sub-records.
+ *
  * <p>From ch03 material: prefer {@code @ConfigurationProperties} over many {@code @Value}
  * fields for any group of related settings.
- *
- * <p>Example YAML binding:
- * <pre>
- * taskqueue:
- *   queue:
- *     type: postgres
- *     capacity: 10000
- *     poll-batch-size: 25
- *   workers:
- *     count: 4
- *     shutdown-timeout: 30s
- *   retry:
- *     max-attempts: 5
- *     base-delay: 1s
- *     max-delay: 5m
- *     jitter: true
- *   reaper:
- *     interval: 30s
- *     visibility-timeout: 5m
- * </pre>
  */
 @ConfigurationProperties(prefix = "taskqueue")
 public record TaskQueueProperties(
         Queue queue,
         Workers workers,
         Retry retry,
-        Reaper reaper) {
+        Reaper reaper,
+        RateLimit rateLimit,
+        Resilience resilience) {
 
     /** Queue-level settings. */
     public record Queue(
@@ -81,5 +65,44 @@ public record TaskQueueProperties(
             Duration interval,
             /** Tasks in RUNNING state older than this are considered stuck. */
             Duration visibilityTimeout) {
+    }
+
+    /**
+     * Token Bucket rate limiter settings (Phase 3).
+     *
+     * <p>Example YAML:
+     * <pre>
+     * taskqueue:
+     *   rate-limit:
+     *     capacity: 100
+     *     refill-rate: 10
+     * </pre>
+     */
+    public record RateLimit(
+            /** Maximum tokens the bucket can hold (also the burst size). */
+            long capacity,
+            /** Tokens added per second (sustained throughput). */
+            long refillRate) {
+    }
+
+    /**
+     * Circuit breaker settings (Phase 3).
+     *
+     * <p>Example YAML:
+     * <pre>
+     * taskqueue:
+     *   resilience:
+     *     sliding-window-size: 10
+     *     failure-rate-threshold: 50
+     *     wait-duration-open: PT10S
+     * </pre>
+     */
+    public record Resilience(
+            /** Number of calls in the sliding window for failure rate calculation. */
+            int slidingWindowSize,
+            /** Failure percentage (0–100) that trips the breaker to OPEN. */
+            float failureRateThreshold,
+            /** How long to wait in OPEN state before probing (HALF_OPEN). */
+            Duration waitDurationOpen) {
     }
 }

@@ -1,5 +1,6 @@
 package com.taskqueue.service;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -10,13 +11,8 @@ import com.taskqueue.repo.TaskRepository;
 /**
  * Read-only application service for task state queries.
  *
- * <p>Separated from {@link TaskSubmissionService} following the
- * Command-Query Separation principle: commands change state, queries read state.
- * The controller delegates write operations to {@code TaskSubmissionService}
- * and read operations here.
- *
- * <p>Future: add caching here with {@code @Cacheable} (Phase 3 ch06 material)
- * to reduce DB reads for hot GET /tasks/{id} endpoints.
+ * <p>Follows Command-Query Separation: commands change state (TaskSubmissionService),
+ * queries read state (here).
  */
 @Service
 public class TaskQueryService {
@@ -27,13 +23,27 @@ public class TaskQueryService {
         this.repository = repository;
     }
 
-    /**
-     * Finds a task by id.
-     *
-     * @param id the task UUID string
-     * @return the task if found, or empty
-     */
+    /** Finds a task by id. */
     public Optional<Task> findById(String id) {
         return repository.findById(id);
+    }
+
+    /**
+     * Returns the most recent tasks across all statuses, ordered by created_at DESC.
+     *
+     * @param limit max rows (capped in the repository at the SQL level)
+     */
+    public List<Task> findRecent(int limit) {
+        return repository.findRecent(Math.min(limit, 200));
+    }
+
+    /**
+     * Returns the most recent tasks in the given status, ordered by created_at DESC.
+     *
+     * @param status the status string (e.g. "RUNNING", "PENDING")
+     * @param limit  max rows
+     */
+    public List<Task> findByStatus(String status, int limit) {
+        return repository.findByStatus(status, Math.min(limit, 200));
     }
 }

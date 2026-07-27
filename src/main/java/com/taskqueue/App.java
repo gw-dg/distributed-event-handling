@@ -72,8 +72,14 @@ public final class App {
         executor.setThreadNamePrefix("phase1-worker-");
         executor.initialize();
 
+        // Create a no-op circuit breaker decorator for the Phase 1 demo path
+        io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry cbRegistry =
+                io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry.ofDefaults();
+        com.taskqueue.worker.CircuitBreakerHandlerDecorator cbDecorator =
+                new com.taskqueue.worker.CircuitBreakerHandlerDecorator(cbRegistry);
+
         Supplier<Worker> workerFactory = () -> new Worker(
-                queue, registry, retryHandler, noopRepo, noopPublisher);
+                queue, registry, retryHandler, noopRepo, noopPublisher, cbDecorator);
 
         WorkerPool pool = new WorkerPool(4, workerFactory, executor);
         pool.start();
@@ -112,6 +118,9 @@ public final class App {
             @Override public void updateStatus(String id, com.taskqueue.model.TaskStatus s) {}
             @Override public void deleteAll() {}
             @Override public int reclaimStuckTasks(long seconds) { return 0; }
+            @Override public int pendingCount() { return 0; }
+            @Override public List<Task> findRecent(int limit) { return List.of(); }
+            @Override public List<Task> findByStatus(String status, int limit) { return List.of(); }
         };
     }
 }

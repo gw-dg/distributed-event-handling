@@ -1,0 +1,21 @@
+# Prometheus scrape configuration — Phase 3
+#
+# Prometheus pulls metrics from Spring Boot Actuator every 15 seconds.
+# The /actuator/prometheus endpoint is exposed via micrometer-registry-prometheus.
+#
+# Usage:
+#   Prometheus UI → http://localhost:9090
+#   Try query:  taskqueue_tasks_submitted_total
+#               taskqueue_task_execution_seconds_count
+#               taskqueue_queue_depth
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: taskqueue
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - host.docker.internal:8080   # Spring Boot app running on the host

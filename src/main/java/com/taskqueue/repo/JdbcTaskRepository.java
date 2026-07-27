@@ -184,6 +184,42 @@ public class JdbcTaskRepository implements TaskRepository {
                 visibilityTimeoutSeconds);
     }
 
+    @Override
+    public int pendingCount() {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM tasks
+                WHERE status IN ('PENDING', 'RETRYING', 'SCHEDULED')
+                """, Integer.class);
+        return count == null ? 0 : count;
+    }
+
+    @Override
+    public List<Task> findRecent(int limit) {
+        return jdbc.query("""
+                SELECT id, type, payload, status, attempts, max_attempts,
+                       created_at, scheduled_at, priority, last_error
+                FROM tasks
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                taskRowMapper(),
+                limit);
+    }
+
+    @Override
+    public List<Task> findByStatus(String status, int limit) {
+        return jdbc.query("""
+                SELECT id, type, payload, status, attempts, max_attempts,
+                       created_at, scheduled_at, priority, last_error
+                FROM tasks
+                WHERE status = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                taskRowMapper(),
+                status, limit);
+    }
+
     // ─── Helpers & Row mapping ──────────────────────────────────────────────
 
     private static OffsetDateTime toOffsetDateTime(Instant instant) {

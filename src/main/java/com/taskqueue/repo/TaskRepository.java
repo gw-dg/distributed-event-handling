@@ -106,4 +106,31 @@ public interface TaskRepository {
      * @return number of tasks reclaimed
      */
     int reclaimStuckTasks(long visibilityTimeoutSeconds);
+
+    /**
+     * Returns the number of tasks currently in {@code PENDING} or {@code RETRYING} state.
+     *
+     * <p>Used as a live queue-depth gauge by {@link com.taskqueue.metrics.TaskMetrics}.
+     * Called by Micrometer on each Prometheus scrape — must be fast (single COUNT query).
+     *
+     * @return current count of actionable (not-yet-run) tasks
+     */
+    int pendingCount();
+
+    /**
+     * Returns the most recent tasks ordered by {@code created_at DESC}.
+     *
+     * @param limit max rows to return; must be >= 1
+     * @return list of tasks, newest first
+     */
+    List<Task> findRecent(int limit);
+
+    /**
+     * Returns the most recent tasks in the given status, ordered by {@code created_at DESC}.
+     *
+     * @param status the status string, e.g. "RUNNING"
+     * @param limit  max rows
+     * @return list of matching tasks, newest first
+     */
+    List<Task> findByStatus(String status, int limit);
 }

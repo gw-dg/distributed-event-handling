@@ -29,14 +29,17 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * See docker-compose.yml for the local development database.
  */
 @SpringBootTest
-@Testcontainers
 public abstract class PostgresIT {
 
-    @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("taskqueue_test")
-            .withUsername("test")
-            .withPassword("test");
+    static final PostgreSQLContainer<?> postgres;
+
+    static {
+        postgres = new PostgreSQLContainer<>("postgres:16-alpine")
+                .withDatabaseName("taskqueue_test")
+                .withUsername("test")
+                .withPassword("test");
+        postgres.start();
+    }
 
     /**
      * Injects the container's dynamic JDBC URL, username, and password into the

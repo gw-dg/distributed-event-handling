@@ -1,3 +1,15 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — Distributed Task Queue (Phase 3)
+#
+# Services:
+#   postgres   — PostgreSQL 16 (port 5433 to avoid collision with native PG)
+#   prometheus — Prometheus scrapes /actuator/prometheus every 15 s (port 9090)
+#
+# Start all:      docker-compose up -d
+# Start postgres: docker-compose up -d postgres
+# Prometheus UI:  http://localhost:9090
+# ─────────────────────────────────────────────────────────────────────────────
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -15,6 +27,25 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  # ── Prometheus ───────────────────────────────────────────────────────────
+  # Pulls metrics from Spring Boot /actuator/prometheus every 15 seconds.
+  # host.docker.internal resolves to the host machine so Prometheus (in Docker)
+  # can reach the Spring Boot app running on your host at port 8080.
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: taskqueue-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:
