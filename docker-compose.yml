@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: taskqueue-postgres
+    environment:
+      POSTGRES_DB: taskqueue
+      POSTGRES_USER: taskqueue
+      POSTGRES_PASSWORD: taskqueue
+    ports:
+      - "5433:5432"
+    volumes:
+      - taskqueue_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskqueue -d taskqueue"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  taskqueue_pgdata:
+    driver: local

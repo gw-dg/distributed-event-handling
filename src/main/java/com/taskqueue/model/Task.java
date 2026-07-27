@@ -85,6 +85,41 @@ public final class Task {
                 null);
     }
 
+    /**
+     * Reconstitution factory used exclusively by the persistence layer to
+     * rebuild a {@code Task} from a database row.
+     *
+     * <p>This bypasses the FSM constraints because the database already holds
+     * a valid state — we trust the DB as the source of truth here.
+     * Application code must still use {@link #create} and transition methods.
+     *
+     * @param id           stored task id
+     * @param type         stored task type
+     * @param payload      stored JSON payload (as a String)
+     * @param status       stored status
+     * @param attempts     stored attempts count
+     * @param maxAttempts  stored max attempts
+     * @param createdAt    stored creation timestamp
+     * @param scheduledAt  stored scheduled timestamp
+     * @param priority     stored priority
+     * @param lastError    stored last error message (may be null)
+     * @return a Task reflecting the persisted state
+     */
+    public static Task reconstitute(
+            String id,
+            String type,
+            String payload,
+            TaskStatus status,
+            int attempts,
+            int maxAttempts,
+            Instant createdAt,
+            Instant scheduledAt,
+            int priority,
+            String lastError) {
+        return new Task(id, type, payload, status, attempts, maxAttempts, priority,
+                createdAt, scheduledAt, lastError);
+    }
+
     // ---- read-only accessors ----
     public String id() {
         return id;
@@ -210,12 +245,38 @@ public final class Task {
                 lastError);
     }
 
+    /**
+     * Transitions a RUNNING task to RETRYING with a future scheduled time.
+     *
+     * <p>Called by {@code RetryHandler} after a retryable failure. The task is
+     * persisted in RETRYING state with {@code scheduledAt = now + backoffDelay}.
+     * The next worker poll will pick it up only after that time has passed.
+     *
+     * <p>This is the key mechanism that prevents Thread.sleep in workers:
+     * the queue owns the delay, not the worker thread.
+     *
+     * @param retryAt the future time when this task should be retried
+     * @param error   the error message from the failed attempt
+     * @return a new Task in RETRYING status with updated scheduledAt
+     */
+    public Task scheduleRetryAt(java.time.Instant retryAt, String error) {
+        Objects.requireNonNull(retryAt, "retryAt");
+        Task failed = transitionTo(TaskStatus.FAILED, attempts, scheduledAt, error);
+        return failed.transitionTo(TaskStatus.RETRYING, failed.attempts(), retryAt, error);
+    }
+
     public boolean isTerminal() {
         return status == TaskStatus.SUCCEEDED || status == TaskStatus.DEAD;
     }
 
     public boolean canRetry() {
         return attempts < maxAttempts;
+    }
+
+    /** Copy-on-change: returns a new Task with a different priority. Used in tests. */
+    public Task withPriority(int newPriority) {
+        return new Task(id, type, payload, status, attempts, maxAttempts, newPriority,
+                createdAt, scheduledAt, lastError);
     }
 
     // two tasks are equals if and only if they share same id

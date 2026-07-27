@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# application-local.yml — Local development overrides
+#
+# Activate with: --spring.profiles.active=local
+# or:            SPRING_PROFILES_ACTIVE=local
+#
+# Local profile uses the in-memory queue so you can run without Docker.
+# For full Postgres testing locally, spin up docker-compose.yml and
+# use the default profile (no profile flag needed).
+# ─────────────────────────────────────────────────────────────────────────────
+
+taskqueue:
+  queue:
+    type: memory       # Use InMemoryTaskQueue — no Postgres needed
+    capacity: 1000
+
+  workers:
+    count: 2           # Fewer threads, easier to trace locally
+    shutdown-timeout: 10s
+
+  retry:
+    max-attempts: 2    # Fail fast during local testing
+    base-delay: 100ms
+    max-delay: 2s
+    jitter: false      # Deterministic delays for local debugging
+
+  reaper:
+    interval: PT10S
+    visibility-timeout: 1m
+
+# Disable Flyway when using in-memory queue (no real DB)
+spring:
+  flyway:
+    enabled: false
+
+logging:
+  level:
+    com.taskqueue: TRACE

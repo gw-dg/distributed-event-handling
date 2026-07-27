@@ -1,63 +1,77 @@
 package com.taskqueue.worker;
 
+import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+
 import com.taskqueue.common.Result;
+import com.taskqueue.events.TaskFailedEvent;
+import com.taskqueue.events.TaskSucceededEvent;
 import com.taskqueue.handler.HandlerRegistry;
 import com.taskqueue.handler.TaskHandler;
 import com.taskqueue.model.Task;
 import com.taskqueue.queue.TaskQueue;
+import com.taskqueue.repo.TaskRepository;
+import com.taskqueue.retry.RetryHandler;
 
 /**
- * A Worker continuously drains a TaskQueue and delegates each Task to the
- * appropriate TaskHandler.
+ * Worker: drains the TaskQueue and executes tasks via registered handlers.
  *
- * <p>
- * Responsibilities:
+ * <p>Phase 2 upgrades from Phase 1:
  * <ul>
- * <li>Block waiting for new tasks.</li>
- * <li>Look up the correct handler.</li>
- * <li>Execute the task.</li>
- * <li>Update the immutable Task state.</li>
- * <li>Honor interruption for graceful shutdown.</li>
- * <li>Prevent handler failures from killing the worker thread.</li>
+ *   <li>Delegates failure to {@link RetryHandler} (no more silent drops).
+ *   <li>Persists success outcome via {@link TaskRepository}.
+ *   <li>Publishes {@link TaskSucceededEvent} and {@link TaskFailedEvent} via Spring events.
+ *   <li>Uses SLF4J logger instead of {@code System.err.printf}.
  * </ul>
+ *
+ * <p>From ch01: "Worker may be a bean, but its logic must remain unit-testable
+ * without Spring." — constructor injection, no field injection, no Spring annotations
+ * on this class itself (it is created by {@code QueueConfig}).
+ *
+ * <p>From task-queues.md: "The worker loop must not die because one bad task failed."
+ * All handler exceptions are caught and routed to {@link RetryHandler}.
  */
 public final class Worker implements Runnable {
 
+    private static final Logger log = LoggerFactory.getLogger(Worker.class);
+
     private final TaskQueue queue;
     private final HandlerRegistry registry;
+    private final RetryHandler retryHandler;
+    private final TaskRepository repository;
+    private final ApplicationEventPublisher events;
 
-    /**
-     * Number of successfully processed tasks.
-     */
     private final AtomicLong processed = new AtomicLong();
+    private final AtomicLong failed    = new AtomicLong();
 
-    /**
-     * Number of permanently failed tasks.
-     */
-    private final AtomicLong failed = new AtomicLong();
-
-    /**
-     * Visibility-only flag for cooperative shutdown.
-     */
+    /** Cooperative shutdown flag — set to false by WorkerPool.shutdown(). */
     private volatile boolean running = true;
 
-    public Worker(TaskQueue queue, HandlerRegistry registry) {
-        this.queue = Objects.requireNonNull(queue, "queue");
-        this.registry = Objects.requireNonNull(registry, "registry");
+    public Worker(
+            TaskQueue queue,
+            HandlerRegistry registry,
+            RetryHandler retryHandler,
+            TaskRepository repository,
+            ApplicationEventPublisher events) {
+        this.queue        = Objects.requireNonNull(queue,        "queue");
+        this.registry     = Objects.requireNonNull(registry,     "registry");
+        this.retryHandler = Objects.requireNonNull(retryHandler, "retryHandler");
+        this.repository   = Objects.requireNonNull(repository,   "repository");
+        this.events       = Objects.requireNonNull(events,       "events");
     }
 
     @Override
     public void run() {
-
         Thread self = Thread.currentThread();
+        log.debug("[{}] Worker started", self.getName());
 
         while (running && !self.isInterrupted()) {
-
             final Task task;
-
             try {
                 task = queue.dequeue();
             } catch (InterruptedException e) {
@@ -67,93 +81,58 @@ public final class Worker implements Runnable {
 
             execute(task);
         }
+
+        log.debug("[{}] Worker stopped", Thread.currentThread().getName());
     }
 
-    /**
-     * Executes a single task while ensuring any handler failure is isolated to
-     * the current task.
-     */
     private void execute(Task task) {
-
-        TaskHandler handler = registry.find(task.type())
-                .orElse(null);
+        TaskHandler handler = registry.find(task.type()).orElse(null);
 
         if (handler == null) {
-            System.err.printf(
-                    "[%s] No handler registered for task type '%s'%n",
-                    Thread.currentThread().getName(),
-                    task.type());
-
-            task.recordFailure(
-                    "No handler registered for type: " + task.type(),
-                    false);
-
+            log.error("[{}] No handler for type '{}' — task {} sent to DLQ",
+                    Thread.currentThread().getName(), task.type(), task.id());
+            // Treat as permanent failure — no handler will ever appear for this type
+            retryHandler.handleFailure(task, Result.fail("No handler registered for type: " + task.type()));
             failed.incrementAndGet();
             return;
         }
 
         try {
-
-            Task runningTask = task.markRunning();
-
-            Result<Void> result = handler.handle(runningTask);
+            // The task is already in RUNNING state (set by pollDue)
+            Result<Void> result = handler.handle(task);
 
             switch (result) {
-
-                case Result.Success<Void> ignored -> {
-                    runningTask.recordSuccess();
+                case Result.Success<Void> __ -> {
+                    Task succeeded = task.recordSuccess();
+                    repository.save(succeeded);
+                    events.publishEvent(new TaskSucceededEvent(task.id(), task.type(), Instant.now()));
                     processed.incrementAndGet();
+                    log.debug("[{}] Task {} succeeded", Thread.currentThread().getName(), task.id());
                 }
-
                 case Result.Failure<Void> failure -> {
-                    runningTask.recordFailure(
-                            failure.error(),
-                            failure.retryable());
+                    events.publishEvent(new TaskFailedEvent(
+                            task.id(), task.type(), failure.error(), failure.retryable(), Instant.now()));
+                    retryHandler.handleFailure(task, result);
                     failed.incrementAndGet();
                 }
             }
 
         } catch (Exception ex) {
-
-            try {
-                task.recordFailure(
-                        ex.getMessage() == null
-                                ? ex.getClass().getSimpleName()
-                                : ex.getMessage(),
-                        true);
-            } catch (Exception ignored) {
-                // Never allow task-state failures to terminate the worker.
-            }
-
+            log.warn("[{}] Task {} threw exception: {}",
+                    Thread.currentThread().getName(), task.id(), ex.getMessage());
+            events.publishEvent(new TaskFailedEvent(
+                    task.id(), task.type(), ex.getMessage(), true, Instant.now()));
+            retryHandler.handleException(task, ex);
             failed.incrementAndGet();
-
-            System.err.printf(
-                    "[%s] Task %s failed: %s%n",
-                    Thread.currentThread().getName(),
-                    task.id(),
-                    ex.getMessage());
         }
     }
 
-    /**
-     * Requests a graceful shutdown.
-     *
-     * The Worker will exit after finishing the current iteration. If blocked in
-     * dequeue(), the owning thread should also be interrupted.
-     */
+    /** Cooperative stop — worker exits after finishing the current task. */
     public void stop() {
         running = false;
     }
 
-    public long processed() {
-        return processed.get();
-    }
-
-    public long failed() {
-        return failed.get();
-    }
-
-    public boolean isRunning() {
-        return running;
-    }
+    public long processed() { return processed.get(); }
+    public long failed()    { return failed.get(); }
+    public boolean isRunning() { return running; }
 }
