@@ -1,0 +1,121 @@
+{
+  "title": "Distributed Task Queue — Phase 4",
+  "uid": "taskqueue-phase4",
+  "version": 3,
+  "schemaVersion": 38,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "title": "Task Throughput (tasks/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(taskqueue_tasks_submitted_total[1m]))",
+          "legendFormat": "Submitted / s"
+        },
+        {
+          "expr": "sum(rate(taskqueue_tasks_succeeded_total[1m]))",
+          "legendFormat": "Succeeded / s"
+        },
+        {
+          "expr": "sum(rate(taskqueue_tasks_failed_total[1m]))",
+          "legendFormat": "Failed / s"
+        },
+        {
+          "expr": "sum(rate(taskqueue_tasks_retried_total[1m]))",
+          "legendFormat": "Retried / s"
+        }
+      ]
+    },
+    {
+      "title": "Total Tasks Submitted",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(taskqueue_tasks_submitted_total) or vector(0)",
+          "legendFormat": "Submitted"
+        }
+      ]
+    },
+    {
+      "title": "Total Tasks Succeeded",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(taskqueue_tasks_succeeded_total) or vector(0)",
+          "legendFormat": "Succeeded"
+        }
+      ]
+    },
+    {
+      "title": "Total Tasks Dead (DLQ)",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(taskqueue_tasks_dead_total) or vector(0)",
+          "legendFormat": "Dead / DLQ"
+        }
+      ]
+    },
+    {
+      "title": "Current Queue Depth",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 4, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "taskqueue_queue_depth or vector(0)",
+          "legendFormat": "Queue Depth"
+        }
+      ]
+    },
+    {
+      "title": "Relay Executions / sec",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 4, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(tasks_scheduled_execution_seconds_count{code_function=\"relay\"}[1m]))",
+          "legendFormat": "Relay Ticks / s"
+        }
+      ]
+    },
+    {
+      "title": "Scheduler Executions / sec",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 4, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(tasks_scheduled_execution_seconds_count{code_function=\"scheduleDueTasks\"}[1m]))",
+          "legendFormat": "Scheduler Ticks / s"
+        }
+      ]
+    },
+    {
+      "title": "HTTP Request Latency (p99)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket[1m])) by (le)) * 1000",
+          "legendFormat": "p99 HTTP latency (ms)"
+        }
+      ]
+    },
+    {
+      "title": "Outbox Relay Batch Processing Time",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(tasks_scheduled_execution_seconds_sum{code_function=\"relay\"}[1m]))",
+          "legendFormat": "Relay Time (s)"
+        }
+      ]
+    }
+  ]
+}

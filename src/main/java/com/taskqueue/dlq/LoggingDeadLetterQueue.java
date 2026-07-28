@@ -19,7 +19,6 @@ import org.springframework.stereotype.Component;
  * <p>Phase 3 adds a persistent DLQ so operators can query, replay, and inspect
  * dead tasks via an admin endpoint without grep-ing logs.
  */
-@Component
 public final class LoggingDeadLetterQueue implements DeadLetterQueue {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingDeadLetterQueue.class);

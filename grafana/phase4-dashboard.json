@@ -1,0 +1,98 @@
+{
+  "title": "Distributed Task Queue — Phase 4",
+  "uid": "taskqueue-phase4",
+  "version": 1,
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "title": "Task Throughput (tasks/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(taskqueue_tasks_succeeded_total[1m])",
+          "legendFormat": "Succeeded / s"
+        },
+        {
+          "expr": "rate(taskqueue_tasks_failed_total[1m])",
+          "legendFormat": "Failed / s"
+        },
+        {
+          "expr": "rate(taskqueue_tasks_submitted_total[1m])",
+          "legendFormat": "Submitted / s"
+        }
+      ]
+    },
+    {
+      "title": "Queue Depth",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "taskqueue_queue_depth",
+          "legendFormat": "Pending Tasks"
+        }
+      ]
+    },
+    {
+      "title": "DLQ Rate (dead tasks/s)",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "rate(taskqueue_tasks_dead_total[1m])",
+          "legendFormat": "Dead / s"
+        }
+      ]
+    },
+    {
+      "title": "Retry Rate",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 4, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "rate(taskqueue_tasks_retried_total[1m])",
+          "legendFormat": "Retried / s"
+        }
+      ]
+    },
+    {
+      "title": "p99 Handler Latency by Type (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, rate(taskqueue_task_execution_seconds_bucket[2m])) * 1000",
+          "legendFormat": "p99 all types"
+        }
+      ]
+    },
+    {
+      "title": "Circuit Breaker State",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "resilience4j_circuitbreaker_state",
+          "legendFormat": "{{name}} state"
+        }
+      ]
+    },
+    {
+      "title": "Redis PEL Depth (in-flight / abandoned)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "description": "Monitor via redis-cli XINFO GROUPS task-stream; exposed via custom gauge if implemented",
+      "targets": []
+    },
+    {
+      "title": "Leader Role Indicators",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "description": "Check redis-cli GET leader:outbox-relay and leader:scheduler for current holders",
+      "targets": []
+    }
+  ]
+}

@@ -145,6 +145,7 @@ public class JdbcTaskRepository implements TaskRepository {
                        created_at, scheduled_at, priority, last_error
                 FROM tasks
                 WHERE status IN ('PENDING', 'RETRYING', 'SCHEDULED')
+                  AND attempts < max_attempts
                   AND scheduled_at <= NOW()
                 ORDER BY priority DESC, created_at ASC
                 LIMIT ?
@@ -234,8 +235,8 @@ public class JdbcTaskRepository implements TaskRepository {
 
         @Override
         public Task mapRow(ResultSet rs, int rowNum) throws SQLException {
-            OffsetDateTime created   = rs.getObject("created_at", OffsetDateTime.class);
-            OffsetDateTime scheduled = rs.getObject("scheduled_at", OffsetDateTime.class);
+            java.sql.Timestamp created   = rs.getTimestamp("created_at");
+            java.sql.Timestamp scheduled = rs.getTimestamp("scheduled_at");
 
             return Task.reconstitute(
                     rs.getString("id"),

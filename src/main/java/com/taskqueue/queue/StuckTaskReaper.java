@@ -55,7 +55,7 @@ public final class StuckTaskReaper {
      * <p>From ch06: "Use fixedDelay when a new run should wait until the previous
      * run finishes. Use fixedRate only when overlap is harmless or prevented."
      */
-    @Scheduled(fixedDelayString = "${taskqueue.reaper.interval:PT30S}")
+    @Scheduled(fixedDelayString = "${taskqueue.reaper.interval:30000}")
     public void reclaimStuckTasks() {
         try {
             int count = repository.reclaimStuckTasks(visibilityTimeoutSeconds);

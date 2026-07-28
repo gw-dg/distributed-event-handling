@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.function.Supplier;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.ApplicationEventPublisher;
@@ -78,6 +79,7 @@ public class QueueConfig {
      * This bean is injected into {@link RetryHandler}.
      */
     @Bean
+    @ConditionalOnMissingBean
     public DeadLetterQueue deadLetterQueue(DeadLetterRepository repository) {
         return new PostgresDeadLetterQueue(repository);
     }
@@ -92,6 +94,7 @@ public class QueueConfig {
      * and each request consumes one token. When empty → 429.
      */
     @Bean
+    @ConditionalOnMissingBean
     public RateLimiter rateLimiter(TaskQueueProperties properties) {
         TaskQueueProperties.RateLimit rl = properties.rateLimit();
         return new TokenBucketRateLimiter(rl.capacity(), rl.refillRate());
@@ -200,7 +203,7 @@ public class QueueConfig {
      */
     @Bean(name = "workerTaskExecutor")
     public ThreadPoolTaskExecutor workerTaskExecutor(TaskQueueProperties properties) {
-        int count = properties.workers().count();
+        int count = Math.max(1, properties.workers().count());
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(count);
         executor.setMaxPoolSize(count);

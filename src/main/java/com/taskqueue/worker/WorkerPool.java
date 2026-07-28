@@ -44,8 +44,8 @@ public final class WorkerPool {
             Supplier<Worker> workerFactory,
             ThreadPoolTaskExecutor executor) {
 
-        if (workerCount < 1) {
-            throw new IllegalArgumentException("workerCount must be >= 1");
+        if (workerCount < 0) {
+            throw new IllegalArgumentException("workerCount must be >= 0");
         }
         Objects.requireNonNull(workerFactory, "workerFactory");
         this.executor = Objects.requireNonNull(executor, "executor");

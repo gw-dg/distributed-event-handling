@@ -19,11 +19,13 @@
     <version>2.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>Distributed Task Queue — Phase 3</name>
+    <name>Distributed Task Queue — Phase 4</name>
     <description>
-        Spring Boot + PostgreSQL durable task queue.
+        Spring Boot + PostgreSQL + Redis Streams distributed task queue.
         Phase 1: pure Java engine. Phase 2: REST API + JDBC persistence.
-        Phase 3: DLQ persistence, rate limiting, circuit breakers, Micrometer metrics.
+        Phase 3: DLQ, rate limiting, circuit breakers, Micrometer metrics.
+        Phase 4: Redis Streams, outbox pattern, leader election, distributed locks,
+                 idempotent handlers, EventBus, virtual threads, Docker Compose topology.
     </description>
 
     <properties>
@@ -48,6 +50,18 @@
     </dependencyManagement>
 
     <dependencies>
+
+        <!-- ─── Phase 4: Redis (Spring Data Redis + Lettuce) ─── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- ─── Phase 4: Kafka (optional swappable adapter) ─── -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
 
         <!-- ─── Spring Boot Starters ─── -->
         <dependency>
@@ -135,6 +149,21 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Phase 4: Testcontainers Redis -->
+        <dependency>
+            <groupId>com.redis</groupId>
+            <artifactId>testcontainers-redis</artifactId>
+            <version>2.2.4</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Phase 4: Spring Kafka test utilities -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -168,10 +197,31 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-Dspring.classformat.ignore=true</argLine>
-                    <systemPropertyVariables>
-                        <spring.classformat.ignore>true</spring.classformat.ignore>
-                    </systemPropertyVariables>
+                    <includes>
+                        <include>**/*Test.java</include>
+                    </includes>
+                    <excludes>
+                        <exclude>**/*IT.java</exclude>
+                    </excludes>
                 </configuration>
+            </plugin>
+
+            <!-- Failsafe plugin for integration tests requiring Docker Testcontainers (*IT.java) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <argLine>-Dspring.classformat.ignore=true</argLine>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

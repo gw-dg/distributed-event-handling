@@ -1,8 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# application.yml  —  Distributed Task Queue, Phase 3
+# application.yml  —  Distributed Task Queue, Phase 4
 #
 # This file holds safe defaults suitable for local development.
-# Override individual values per environment:
+# Override individual values per environment via env vars or profile YMLs.
 #   - application-local.yml   (local dev, in-memory queue)
 #   - application-prod.yml    (production, postgres queue)
 #   - Environment variables:  TASKQUEUE_WORKERS_COUNT=8 java -jar ...
@@ -15,6 +15,32 @@
 spring:
   application:
     name: distributed-task-queue
+
+  # ── Redis (Phase 4) ────────────────────────────────────────────────────────
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    timeout: 2000
+    lettuce:
+      pool:
+        max-active: 16
+        max-idle: 8
+        min-idle: 2
+
+  # ── Scheduling (Phase 4: outbox relay, leader-elected scheduler) ────────────
+  task:
+    scheduling:
+      enabled: true
 
   # ── DataSource (HikariCP, auto-configured by Spring Boot) ──────────────────
   datasource:
@@ -54,11 +80,18 @@ spring:
 taskqueue:
 
   queue:
-    # "memory" -> InMemoryTaskQueue (local/test)
-    # "postgres" -> PostgresTaskQueue (production)
-    type: postgres
+    # "memory"       -> InMemoryTaskQueue  (local/test)
+    # "postgres"     -> PostgresTaskQueue  (production Phase 2/3)
+    # "redis-stream" -> RedisStreamTaskQueue (production Phase 4)
+    type: redis-stream
     capacity: 10000
     poll-batch-size: 25
+    # Phase 4: Redis Streams consumer group name
+    consumer-group: ${CONSUMER_GROUP:workers}
+    # Phase 4: unique node ID per worker container
+    consumer-name: ${WORKER_ID:worker-0}
+    # Phase 4: how long a lease may stay un-acked before reclaim (milliseconds)
+    visibility-timeout-ms: 30000
 
   workers:
     count: 4
@@ -75,6 +108,30 @@ taskqueue:
     interval: PT30S
     # Tasks stuck in RUNNING for longer than this are reclaimed
     visibility-timeout: 5m
+
+  # ── Phase 4: Outbox Relay ───────────────────────────────────────────────────
+  outbox:
+    # How often the relay polls for unpublished rows (only the elected leader runs this)
+    poll-interval: 250
+    # Rows per relay batch
+    batch-size: 50
+
+  # ── Phase 4: Leader Election ────────────────────────────────────────────────
+  leader:
+    # Each node's unique ID — override via env var in Docker
+    node-id: ${WORKER_ID:local-node}
+    # Redis key TTL for the leader lock (must be > heartbeat interval)
+    ttl-ms: 10000
+    # Heartbeat / renewal interval
+    heartbeat-ms: 3000
+
+  # ── Phase 4: EventBus ───────────────────────────────────────────────────────
+  event-bus:
+    # "in-process" -> InProcessEventBus (single-node, tests)
+    # "redis"      -> RedisEventBus (multi-node pub/sub)
+    type: ${EVENT_BUS_TYPE:redis}
+    # Redis pub/sub channel name
+    channel: task-events
 
   # ── Phase 3: Token Bucket Rate Limiter ─────────────────────────────────────
   # capacity: bucket size (also the maximum burst)

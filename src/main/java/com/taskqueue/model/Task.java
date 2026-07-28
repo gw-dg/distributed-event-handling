@@ -105,19 +105,23 @@ public final class Task {
      * @param lastError    stored last error message (may be null)
      * @return a Task reflecting the persisted state
      */
+    @com.fasterxml.jackson.annotation.JsonCreator
     public static Task reconstitute(
-            String id,
-            String type,
-            String payload,
-            TaskStatus status,
-            int attempts,
-            int maxAttempts,
-            Instant createdAt,
-            Instant scheduledAt,
-            int priority,
-            String lastError) {
+            @com.fasterxml.jackson.annotation.JsonProperty("id") String id,
+            @com.fasterxml.jackson.annotation.JsonProperty("type") String type,
+            @com.fasterxml.jackson.annotation.JsonProperty("payload") String payload,
+            @com.fasterxml.jackson.annotation.JsonProperty("status") TaskStatus status,
+            @com.fasterxml.jackson.annotation.JsonProperty("attempts") int attempts,
+            @com.fasterxml.jackson.annotation.JsonProperty("maxAttempts") int maxAttempts,
+            @com.fasterxml.jackson.annotation.JsonProperty("createdAt") Instant createdAt,
+            @com.fasterxml.jackson.annotation.JsonProperty("scheduledAt") Instant scheduledAt,
+            @com.fasterxml.jackson.annotation.JsonProperty("priority") int priority,
+            @com.fasterxml.jackson.annotation.JsonProperty("lastError") String lastError) {
+        Instant safeScheduledAt = (scheduledAt != null && createdAt != null && scheduledAt.isBefore(createdAt))
+                ? createdAt
+                : scheduledAt;
         return new Task(id, type, payload, status, attempts, maxAttempts, priority,
-                createdAt, scheduledAt, lastError);
+                createdAt, safeScheduledAt, lastError);
     }
 
     // ---- read-only accessors ----

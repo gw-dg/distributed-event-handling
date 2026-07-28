@@ -64,6 +64,10 @@ public sealed interface Result<T>
         return new Success<>(value);
     }
 
+    static Result<Void> ok() {
+        return new Success<>(null);
+    }
+
     static <T> Result<T> fail(String error) {
         return new Failure<>(error, false);
     }

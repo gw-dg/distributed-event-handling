@@ -14,6 +14,7 @@ import com.taskqueue.events.TaskSucceededEvent;
 import com.taskqueue.handler.HandlerRegistry;
 import com.taskqueue.handler.TaskHandler;
 import com.taskqueue.model.Task;
+import com.taskqueue.model.TaskStatus;
 import com.taskqueue.queue.TaskQueue;
 import com.taskqueue.repo.TaskRepository;
 import com.taskqueue.retry.RetryHandler;
@@ -89,6 +90,15 @@ public final class Worker implements Runnable {
     }
 
     private void execute(Task task) {
+        if (task.status() != TaskStatus.RUNNING) {
+            try {
+                task = task.markRunning();
+                repository.save(task);
+            } catch (Exception e) {
+                // Task may already be marked running in DB — continue with running state
+            }
+        }
+
         TaskHandler handler = registry.find(task.type()).orElse(null);
 
         if (handler == null) {

@@ -1,22 +1,33 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# docker-compose.yml — Distributed Task Queue (Phase 3)
+# docker-compose.yml — Distributed Task Queue (Phase 4)
 #
-# Services:
-#   postgres   — PostgreSQL 16 (port 5433 to avoid collision with native PG)
-#   prometheus — Prometheus scrapes /actuator/prometheus every 15 s (port 9090)
+# Full topology:
+#   postgres   — PostgreSQL 16           (port 5433)
+#   redis      — Redis 7.2 with Streams  (port 6379)
+#   api        — Spring Boot API node    (port 8080)
+#   worker     — Worker node(s)          (scalable)
+#   prometheus — Metrics scraper         (port 9090)
+#   grafana    — Dashboards              (port 3000)
 #
-# Start all:      docker-compose up -d
-# Start postgres: docker-compose up -d postgres
-# Prometheus UI:  http://localhost:9090
+# Start full stack:    docker compose up -d
+# Scale workers:       docker compose up -d --scale worker=3
+# Prometheus UI:       http://localhost:9090
+# Grafana UI:          http://localhost:3000  (admin/admin)
+# API:                 http://localhost:8080/tasks
+# Redis CLI:           docker exec -it taskqueue-redis redis-cli
+# Watch task stream:   docker exec taskqueue-redis redis-cli XREAD COUNT 10 STREAMS task-stream 0-0
+# Watch DLQ:          docker exec taskqueue-redis redis-cli XREAD COUNT 10 STREAMS dlq-stream 0-0
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: taskqueue-postgres
     environment:
-      POSTGRES_DB: taskqueue
-      POSTGRES_USER: taskqueue
+      POSTGRES_DB:       taskqueue
+      POSTGRES_USER:     taskqueue
       POSTGRES_PASSWORD: taskqueue
     ports:
       - "5433:5432"
@@ -29,10 +40,80 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # ── Prometheus ───────────────────────────────────────────────────────────
-  # Pulls metrics from Spring Boot /actuator/prometheus every 15 seconds.
-  # host.docker.internal resolves to the host machine so Prometheus (in Docker)
-  # can reach the Spring Boot app running on your host at port 8080.
+  # ── Redis 7.2 (Streams + pub/sub) ─────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: taskqueue-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - taskqueue_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ── API Node ──────────────────────────────────────────────────────────────
+  # Handles HTTP requests — no worker threads, pure API role
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: taskqueue-api
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/taskqueue
+      SPRING_DATASOURCE_USERNAME: taskqueue
+      SPRING_DATASOURCE_PASSWORD: taskqueue
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      WORKER_ID: api-node
+      CONSUMER_GROUP: workers
+      EVENT_BUS_TYPE: redis
+      TASKQUEUE_QUEUE_TYPE: redis-stream
+      TASKQUEUE_WORKERS_COUNT: "0"     # API node: no workers
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Worker Node (scalable: docker compose up --scale worker=N) ─────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/taskqueue
+      SPRING_DATASOURCE_USERNAME: taskqueue
+      SPRING_DATASOURCE_PASSWORD: taskqueue
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      # WORKER_ID is set per-replica via a startup script or docker-compose feature.
+      # For local testing, you can set it manually: WORKER_ID=worker-1
+      WORKER_ID: "worker-${HOSTNAME:-0}"
+      CONSUMER_GROUP: workers
+      EVENT_BUS_TYPE: redis
+      TASKQUEUE_QUEUE_TYPE: redis-stream
+      TASKQUEUE_WORKERS_COUNT: "4"
+      SERVER_PORT: "8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.53.0
     container_name: taskqueue-prometheus
@@ -48,6 +129,26 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  # ── Grafana ────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: taskqueue-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+    volumes:
+      - taskqueue_grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   taskqueue_pgdata:
+    driver: local
+  taskqueue_redis_data:
+    driver: local
+  taskqueue_grafana_data:
     driver: local

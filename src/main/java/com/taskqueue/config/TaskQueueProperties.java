@@ -15,7 +15,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *   <li>Type conversion from YAML strings to Duration, int, boolean is automatic.</li>
  * </ul>
  *
- * <p>Phase 3 additions: {@link RateLimit} and {@link Resilience} sub-records.
+ * <p>Phase 4 additions: {@link Outbox}, {@link Leader}, and {@link EventBus} sub-records.
+ * {@link Queue} gains consumerGroup, consumerName, and visibilityTimeoutMs.
  *
  * <p>From ch03 material: prefer {@code @ConfigurationProperties} over many {@code @Value}
  * fields for any group of related settings.
@@ -27,16 +28,25 @@ public record TaskQueueProperties(
         Retry retry,
         Reaper reaper,
         RateLimit rateLimit,
-        Resilience resilience) {
+        Resilience resilience,
+        Outbox outbox,
+        Leader leader,
+        EventBus eventBus) {
 
     /** Queue-level settings. */
     public record Queue(
-            /** "memory" or "postgres" — selects the TaskQueue bean via @ConditionalOnProperty. */
+            /** "memory", "postgres", or "redis-stream" — selects the TaskQueue bean. */
             String type,
             /** Max tasks in the in-memory buffer (InMemoryTaskQueue capacity). */
             int capacity,
             /** How many rows PostgresTaskQueue polls per SKIP LOCKED batch. */
-            int pollBatchSize) {
+            int pollBatchSize,
+            /** Phase 4: Redis Streams consumer group name. */
+            String consumerGroup,
+            /** Phase 4: unique consumer name for this node (WORKER_ID env var). */
+            String consumerName,
+            /** Phase 4: how long (ms) a lease may remain un-acked before reclaim. */
+            long visibilityTimeoutMs) {
     }
 
     /** Worker pool settings. */
@@ -104,5 +114,46 @@ public record TaskQueueProperties(
             float failureRateThreshold,
             /** How long to wait in OPEN state before probing (HALF_OPEN). */
             Duration waitDurationOpen) {
+    }
+
+    /**
+     * Outbox relay settings (Phase 4).
+     *
+     * <p>The outbox relay polls Postgres for unpublished rows and forwards them to the broker.
+     * Only the elected leader runs the relay loop.
+     */
+    public record Outbox(
+            /** How often the relay polls for unpublished rows (e.g., PT0.25S). */
+            Duration pollInterval,
+            /** Maximum rows to publish per relay iteration. */
+            int batchSize) {
+    }
+
+    /**
+     * Redis leader election settings (Phase 4).
+     *
+     * <p>Uses Redis SET NX PX (Redlock lite — single-node). Suitable for soft coordination
+     * (outbox relay, scheduler). For strict correctness, upgrade to multi-node Redlock.
+     */
+    public record Leader(
+            /** Unique node identifier — set via WORKER_ID env var in Docker. */
+            String nodeId,
+            /** How long (ms) the Redis leadership key lives without renewal. */
+            long ttlMs,
+            /** How often (ms) the leader heartbeats to renew its key. */
+            long heartbeatMs) {
+    }
+
+    /**
+     * EventBus implementation selector (Phase 4).
+     *
+     * <p>"in-process" → {@code InProcessEventBus} (tests, single-node dev).
+     * <p>"redis"      → {@code RedisEventBus} (multi-node pub/sub).
+     */
+    public record EventBus(
+            /** "in-process" or "redis". */
+            String type,
+            /** Redis pub/sub channel name. */
+            String channel) {
     }
 }
